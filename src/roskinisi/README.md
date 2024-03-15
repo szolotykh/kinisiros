@@ -12,7 +12,7 @@ Arguments:
 
 Example:
 ```
-ros2 run roskinisi kinisi_controller --ros-args -p port:=/dev/ttyUSB0
+ros2 run roskinisi kinisi_controller --ros-args -p port:=/dev/ttyACM0
 ```
 
 Publish cmd_vel
