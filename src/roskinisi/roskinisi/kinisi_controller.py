@@ -41,9 +41,9 @@ class KinisiControllerNode(Node):
 
         if platform_type == "omni":
             self.kinisi_controller.initialize_omni_platform(
-                is_reversed_0=False,
-                is_reversed_1=False,
-                is_reversed_2=False,
+                is_reversed_0=True,
+                is_reversed_1=True,
+                is_reversed_2=True,
                 wheels_diameter=0.1, # 10 cm
                 robot_radius=0.15, # 15 cm
                 encoder_resolution=encoder_resolution
