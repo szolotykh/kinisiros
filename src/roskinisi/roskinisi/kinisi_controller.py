@@ -45,7 +45,7 @@ class KinisiControllerNode(Node):
                 is_reversed_1=True,
                 is_reversed_2=True,
                 wheels_diameter=0.096,
-                robot_radius=0.18,
+                robot_radius=0.175,
                 encoder_resolution=encoder_resolution
             )
         elif platform_type == "mecanum":
