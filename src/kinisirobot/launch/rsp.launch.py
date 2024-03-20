@@ -72,7 +72,7 @@ def generate_launch_description():
         executable='static_transform_publisher',
         name='static_transform_publisher',
         output='screen',
-        arguments=['0', '0', '0', '0', '0', '0', 'base_link', 'laser_frame']
+        arguments=['0.112', '0', '0.075', '3.14', '0', '3.14', 'base_link', 'laser_frame']
     )
     
 
@@ -82,7 +82,7 @@ def generate_launch_description():
             default_value='false',
             description='Use sim time if true'),
         node_robot_state_publisher,
-        node_kinisi_controller,
-        node_rplidar,
+        #node_kinisi_controller,
+        #node_rplidar,
         node_static_transform_publisher
     ])
