@@ -72,6 +72,7 @@ class KinisiControllerNode(Node):
         )
 
         self.kinisi_controller.start_platform_odometry()
+        self.kinisi_controller.reset_platform_odometry()
 
         # Indicate that platform is ready
         self.kinisi_controller.toggle_status_led_state()
