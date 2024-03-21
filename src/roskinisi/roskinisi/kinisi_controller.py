@@ -84,7 +84,7 @@ class KinisiControllerNode(Node):
 
         # Enable odom publishing
         self.odom_publisher = self.create_publisher(Odometry, '/odom', 10)
-        odom_publish_period = 1  # seconds
+        odom_publish_period = 0.1  # 10 Hz
         self.odom_timer = self.create_timer(odom_publish_period, self.odom_publish_callback)
 
         # Enable subscriber for velocity commands
