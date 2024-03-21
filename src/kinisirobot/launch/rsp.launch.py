@@ -72,7 +72,7 @@ def generate_launch_description():
         executable='static_transform_publisher',
         name='static_transform_publisher',
         output='screen',
-        arguments=['0.112', '0', '0.1', '0', '0', '3.14', 'base_link', 'laser_frame']
+        arguments=['0.112', '0', '0.1', '0', '0', '0', 'base_link', 'laser_frame']
     )
     
 
