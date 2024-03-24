@@ -65,8 +65,8 @@ class KinisiControllerNode(Node):
 
         # Set three platform velocity components
         self.kinisi_controller.start_platform_controller(
-            kp=1, # Proportional gain
-            ki=0.1, # Integral gain
+            kp=1.2, # Proportional gain
+            ki=0.2, # Integral gain
             kd=0, # Derivative gain
             integral_limit=30 # Absolute maximum value of integral value.
         )
