@@ -86,7 +86,7 @@ class KinisiControllerNode(Node):
         self.odom_publisher = self.create_publisher(Odometry, '/odom', 10)
         odom_publish_period = 0.1  # 10 Hz
         self.odom_timer = self.create_timer(odom_publish_period, self.odom_publish_callback)
-
+        
         # Enable subscriber for velocity commands
         self.cmd_vel_subscriber = self.create_subscription(Twist, "/cmd_vel", self.cmd_vel_callback, 10)
         self.get_logger().info('Started kinisi_controller node.')
@@ -109,7 +109,6 @@ class KinisiControllerNode(Node):
         odom_msg.twist.twist.angular.y = 0.0
         odom_msg.twist.twist.angular.z = odometry_data.t
         self.odom_publisher.publish(odom_msg)
-        self.get_logger().info('Published odom: "%s"' % odom_msg)
 
         # Publish tf2
         t = TransformStamped()
