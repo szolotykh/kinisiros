@@ -86,7 +86,9 @@ def generate_launch_description():
         package='teleop_twist_joy',
         executable='teleop_node',
         name='teleop_twist_joy_node',
-        parameters=[{'axis_linear': {'x': 1, 'y': 3, 'z': -1},
+        parameters=[{'require_enable_button': True,
+                    'enable_button': 7, # Right bumper
+                    'axis_linear': {'x': 1, 'y': 2, 'z': -1},
                     'scale_linear': {'x': 0.5, 'y': 0.5, 'z': 0.0},
                     'axis_angular': {'yaw': 0, 'pitch': -1, 'roll': -1},
                     'scale_angular': {'yaw': 1.2, 'pitch': 0.0, 'roll': 0.0}}],
