@@ -76,9 +76,9 @@ def generate_launch_description():
     )
 
     joy_node = Node(
-        package='joy',
-        executable='joy_node',
-        name='joy_joy_node'
+        package='joy_linux',
+        executable='joy_linux_node',
+        name='joy_linux_node'
     )
 
 

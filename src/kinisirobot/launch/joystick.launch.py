@@ -3,9 +3,9 @@ from launch import LaunchDescription
 from launch_ros.actions import Node
 
 joy_node = Node(
-    package='joy',
-    executable='joy_node',
-    name='joy_joy_node'
+    package='joy_linux',
+    executable='joy_linux_node',
+    name='joy_linux_node'
 )
 
 # https://index.ros.org/p/teleop_twist_joy/github-ros2-teleop_twist_joy/
