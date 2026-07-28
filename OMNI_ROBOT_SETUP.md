@@ -271,6 +271,36 @@ watches the planned path + nav state; **Cancel Navigation** aborts. Velocities i
 `nav2_params.yaml` are intentionally conservative (`max_vel 0.26 m/s`) — tune on
 hardware.
 
+### Update-map mode (navigate while extending the map)
+
+Instead of localizing against a *static* map, you can run Nav2 on top of
+**slam_toolbox (mapping)** so the map keeps updating while the robot drives to
+goals — useful to fill gaps or map new areas. Selected with `slam:=true`:
+
+```bash
+# Start a fresh map and refine it while navigating:
+ros2 launch kinisirobot navigation.launch.py slam:=true
+
+# Or continue extending a previously-saved map (basename of a serialized
+# .posegraph/.data pair — NOT the .yaml):
+ros2 launch kinisirobot navigation.launch.py slam:=true \
+     slam_map:=/home/szolotykh/maps/kinisi_map
+```
+
+In this mode slam_toolbox provides both `map → odom` (so **no Set Pose needed**)
+and a continuously-updated `/map` that Nav2's costmaps track. Do **not** also run
+`navigation.launch.py` in the default (AMCL) mode or a separate slam_toolbox — only
+one thing may publish `map → odom`. Save the improved map with the web client's
+**Save Map** button, or:
+
+```bash
+# occupancy grid (.pgm/.yaml, for later localization):
+ros2 run nav2_map_server map_saver_cli -f ~/maps/kinisi_map
+# serialized pose-graph (.posegraph/.data, to continue updating later):
+ros2 service call /slam_toolbox/serialize_map slam_toolbox/srv/SerializePoseGraph \
+  "{filename: '/home/szolotykh/maps/kinisi_map'}"
+```
+
 ## Web client (map view + WASD driving)
 
 A browser client lives in `../robot_client/` (`web_bridge.py` + `index.html`).
@@ -284,8 +314,10 @@ python3 web_bridge.py --port 8080
 
 Open `http://rospi.local:8080/`. Controls: `W`/`S` forward/back, `A`/`D` rotate,
 `Q`/`E` strafe, `Space` = stop. **Reset Position** zeroes odometry; **Reset Map**
-restarts slam_toolbox with a fresh map. Only depends on `rclpy` + the stdlib. See
-`robot_client/README.md` for the HTTP API.
+restarts slam_toolbox with a fresh map; **Save Map** persists the current map
+(occupancy grid, plus the slam_toolbox pose-graph when in update-map mode). The
+map status line shows whether the map is `updating (SLAM)` or `static (AMCL)`.
+Only depends on `rclpy` + the stdlib. See `robot_client/README.md` for the HTTP API.
 
 ## Troubleshooting
 
