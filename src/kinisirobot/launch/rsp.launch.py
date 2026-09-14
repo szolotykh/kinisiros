@@ -65,14 +65,17 @@ def generate_launch_description():
             parameters=[amcl_config_file],
         )
     
-    # ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 base_link laser_frame
+    # ros2 run tf2_ros static_transform_publisher 0 0 0 3.14159 0 0 base_link laser_frame
     # static_transform_publisher node
+    # yaw=pi: the RPLIDAR is mounted rotated 180deg about Z (its 0deg beam points
+    # to the robot rear). Without this SLAM's scans move opposite to odometry and
+    # the map smears. args order: x y z yaw pitch roll parent child.
     node_static_transform_publisher = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
         name='static_transform_publisher',
         output='screen',
-        arguments=['0', '0', '0', '0', '0', '0', 'base_link', 'laser_frame']
+        arguments=['0', '0', '0', '3.14159', '0', '0', 'base_link', 'laser_frame']
     )
     
 

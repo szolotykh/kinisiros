@@ -4,6 +4,45 @@ How to bring up the **3-wheel omni** Kinisi robot on the Raspberry Pi and drive 
 with ROS 2 `Twist` commands. Verified working end-to-end (rotation + translation
 confirmed via `/odom`).
 
+## Quick start: one-command bring-up (`start-omni.ps1`)
+
+From the Windows PC, `start-omni.ps1` deploys the latest code and brings up the
+**whole stack** on the Pi over SSH (base + rosbridge + web UI + Nav2 + mapping),
+all detached so it survives the SSH session:
+
+```powershell
+cd C:\Development\kinisi_controller\kinisiros
+.\start-omni.ps1                       # start everything (navigate + map at once)
+.\start-omni.ps1 -Action status        # show what's up
+.\start-omni.ps1 -Action restart       # redeploy code + clean relaunch (needed for src changes)
+.\start-omni.ps1 -Action stop          # stop the stack
+```
+
+Key options:
+
+| Option        | Values / default                                        | Notes                                              |
+| ------------- | ------------------------------------------------------- | -------------------------------------------------- |
+| `-Action`     | `start` (default) `stop` `status` `restart`             | `restart` force-relaunches everything.             |
+| `-Mode`       | `update-map` (default) `localization` `mapping` `none`  | `update-map` = Nav2 + SLAM together; `none` = robot + UI only. |
+| `-RobotHost`  | `rospi.local` (default)                                 | Pass the Pi's **IP** when mDNS won't resolve.      |
+| `-SkipDeploy` | switch                                                  | Don't scp code; just (re)start what's on the Pi.   |
+| `-SlamMap`    | basename                                                | Continue extending a serialized map (update-map).  |
+
+On `start`/`restart` it **scp's** `robot_client/` (`web_bridge.py`, `index.html`,
+`cam_grab.py`) plus the two edited workspace sources (`kinisi_controller.py`,
+`nav2_params.yaml`) to the Pi, then relaunches `web_bridge`. The Pi workspace is
+built `--symlink-install`, so copied sources are live after a **restart** (no
+`colcon build` needed). Nothing survives a Pi **reboot** — just re-run the script.
+
+> **mDNS/DHCP is flaky from Windows.** `rospi.local` intermittently fails to
+> resolve and the Pi's DHCP lease changes. If the script can't reach the Pi, get
+> its IP with `ssh -i ~/.ssh/pi_kinisi szolotykh@rospi.local "hostname -I"` (or
+> scan the LAN for the host that accepts the `pi_kinisi` key) and pass
+> `-RobotHost <ip>`.
+
+The sections below document the same components **manually** on the Pi, for
+reference and troubleshooting.
+
 ## Hardware
 
 - **Controller:** Kinisi STM32F405 motor controller (drives the 3 omni wheels with
@@ -317,16 +356,88 @@ Open `http://rospi.local:8080/`. Controls: `W`/`S` forward/back, `A`/`D` rotate,
 restarts slam_toolbox with a fresh map; **Save Map** persists the current map
 (occupancy grid, plus the slam_toolbox pose-graph when in update-map mode). The
 map status line shows whether the map is `updating (SLAM)` or `static (AMCL)`.
-Only depends on `rclpy` + the stdlib. See `robot_client/README.md` for the HTTP API.
+The robot is drawn at its **real footprint** (0.30 m radius). Extra panels:
+
+- **Autonomous navigation** — *Set Pose* (seed AMCL), *Set Goal* (click + drag to
+  aim), *Cancel Navigation*.
+- **Costmap overlay** — toggle the Nav2 global/local costmap on the map
+  (`GET /map?costmap=global|local|both`).
+- **Camera** — 📷 toggle a periodic snapshot (see **Camera view** below). Off by
+  default because capture is expensive.
+- **Heartbeat safety stop** — the UI pings `/heartbeat` continuously; if the
+  browser disconnects, the watchdog issues a safety stop. This matters because
+  the base **latches** its last `/cmd_vel`, so it keeps moving until told to stop.
+
+Only depends on `rclpy` + the stdlib. See `robot_client/README.md` for the full
+HTTP API and file layout.
+
+## Camera view
+
+The robot carries a **Raspberry Pi Camera Module 3 (IMX708)**. The web UI's 📷
+panel shows a periodic still (there is **no live video** — see below).
+
+### One-time hardware enablement (Ubuntu 22.04 / linux-raspi 5.15)
+
+The stock Ubuntu 22.04 kernel ships **no** imx708 driver or device-tree overlay,
+so Camera Module 3 isn't detected out of the box. Bring-up required backported
+kernel modules (built against the exact running kernel, kept in `~/cam_backport`
+on the Pi):
+
+1. **`imx708.ko`** — the sensor driver. Installed into
+   `/lib/modules/$(uname -r)/updates/`, then `depmod -a`. Its `modinfo` *vermagic*
+   must match the running kernel.
+2. **`imx708.dtbo`** — the device-tree overlay. Copied to the boot `overlays/`
+   dir and enabled in `config.txt`:
+   ```
+   dtoverlay=imx708
+   camera_auto_detect=0      # or auto-detect overrides the manual overlay
+   ```
+   Then **reboot**. (If undetected, try `dtoverlay=imx708,cam0` / `,cam1`.)
+3. **`dw9807-vcm.ko`** — the DW9807/DW9817 autofocus VCM driver. The imx708
+   declares a lens-focus device; **without this driver unicam never finishes
+   probing and `/dev/video0` is never created.** `modprobe dw9807-vcm`.
+
+After reboot the kernel log shows the imx708 module ID and `/dev/video0` +
+`/dev/v4l-subdev*` appear. `media-ctl -d /dev/media0 -p` shows the unicam graph.
+
+### Capture pipeline (`robot_client/cam_grab.py`)
+
+There is no working libcamera/rpicam/ffmpeg on this Pi, so capture is done
+directly off **unicam**: `media-ctl`/`v4l2-ctl` configure the sensor (binned
+2304×1296 RG10, manual exposure/gain, VCM focus), grab a couple of raw frames,
+then software-process them. The processing is deliberately **NumPy + PIL, not
+OpenCV**: `import cv2` alone costs ~1.6 s per process on this Pi and dominated
+capture time. Pipeline:
+
+1. Read the last raw RG10 frame; **half-resolution binned demosaic** in NumPy
+   (each 2×2 Bayer block → one RGB pixel) → 1152×648.
+2. Gray-world white balance + gamma.
+3. Rotate 180° (camera is mounted upside down) and JPEG-encode with PIL.
+
+Result: **~1.6 s/frame, ~56 KB JPEG** (was ~4.7 s and ~250 KB with the OpenCV
+path). Useful env vars: `ROTATE` (`0/90/180/270`, default 180), `FRAMES`
+(warm-up frames, default 2), `JPEG_QUALITY` (default 85),
+`EXPOSURE`/`AGAIN`/`VBLANK`.
+
+### How the UI uses it
+
+`web_bridge.py` serves `GET /camera.jpg`: it returns the cached frame immediately
+and kicks a background `cam_grab.py` capture if one isn't already running. The UI
+polls every ~2 s **only while the camera panel is open**, so the image refreshes
+~every 2 s and there is **zero capture cost when the panel is closed**.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 | ------- | --- |
 | SSH to the IP times out | Use `rospi.local` (IP is DHCP). |
+| `rospi.local` won't resolve from Windows | mDNS is flaky and the DHCP lease changes. Get the IP via `ssh ... szolotykh@rospi.local "hostname -I"` when it briefly resolves, or scan the LAN for the host that accepts the `pi_kinisi` key, then pass `-RobotHost <ip>` to `start-omni.ps1`. |
 | `Can't open serial connection` | Check the port; ensure the proxy isn't holding it. `sudo chmod 777 /dev/ttyACM0` if permissions block access. |
 | Commands logged but robot doesn't move | Controller was likely power-cycled — restart the node to re-init the platform. Also check motor power/battery. |
 | Rotation/forward command "missed" | Use `ros2 topic pub --once` instead of a rate publisher with a short timeout. |
 | Robot won't stop | Publish an empty `{}` Twist (velocity is latched). |
 | Map stops updating / `/scan` silent | The A1's `/dev/ttyUSB*` re-enumerated (e.g. ttyUSB0→ttyUSB1) after a USB reset; the rplidar node is on a dead device. Restart it on the by-id path `/dev/serial/by-id/usb-Silicon_Labs_CP2102_...-port0`. Check with `ros2 topic hz /scan`. |
 | Pose/map drifts badly when driving in curves | Old firmware odometry bug (body-frame accumulation without heading rotation). Fixed in current firmware — reflash with `pio run -e genericSTM32F405RG -t upload`. Straight lines/spins are unaffected. |
+| Camera panel shows "capturing…" forever | First capture not done yet (~1.6 s) or `cam_grab.py` failed. Check `~/web_bridge.log` for `camera capture failed`; confirm `/dev/video0` exists (VCM driver loaded) and the user is in the `video` group. |
+| Camera image upside down / rotated | Set `ROTATE` (`0/90/180/270`) in `cam_grab.py`'s environment; default is 180 for the inverted mount. |
+| Robot keeps moving after the browser is closed | Expected — the base latches the last `/cmd_vel`. The UI heartbeat watchdog stops it; otherwise publish an empty `{}` Twist or hit E-Stop. |

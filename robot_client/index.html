@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kinisi Robot Client</title>
+<style>
+  :root { --bg:#12151c; --panel:#1c2130; --fg:#e6e9f0; --muted:#8b93a7; --accent:#4fc3f7; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  header { padding:12px 18px; background:var(--panel); display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  .status { font-size:13px; color:var(--muted); }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:#555; margin-right:6px; vertical-align:middle; }
+  .dot.ok { background:#4caf50; } .dot.bad { background:#e53935; }
+  main { display:flex; gap:18px; padding:18px; flex-wrap:wrap; }
+  .mapwrap { background:var(--panel); border-radius:10px; padding:12px; }
+  .mapview { position:relative; }
+  .mapctl { position:absolute; top:8px; right:8px; display:flex; flex-direction:column; gap:6px; }
+  .mapctl button { width:34px; height:34px; border:1px solid #3a4256; border-radius:8px;
+                   background:rgba(28,33,48,0.85); color:var(--fg); font-size:18px; font-weight:700;
+                   cursor:pointer; line-height:1; display:flex; align-items:center; justify-content:center; }
+  .mapctl button:hover { background:#333c50; }
+  .mapctl button.active { background:var(--accent); color:#04121a; border-color:var(--accent); }
+  .cmlegend { position:absolute; left:8px; bottom:8px; display:none; gap:8px; align-items:center;
+              background:rgba(28,33,48,0.82); border:1px solid #3a4256; border-radius:8px;
+              padding:5px 9px; font-size:11px; color:var(--muted); }
+  .cmlegend.on { display:flex; }
+  .cmbar { width:70px; height:9px; border-radius:3px;
+           background:linear-gradient(90deg,#1e5ac8,#17be7a,#ebbe00,#ff8200,#eb2828); }
+  canvas { background:#8a8a8a; border-radius:6px; display:block; image-rendering:pixelated; }
+  .side { background:var(--panel); border-radius:10px; padding:16px; min-width:240px; }
+  .keys { display:grid; grid-template-columns:repeat(3,52px); grid-gap:8px; justify-content:center; margin:10px 0 4px; }
+  .key { height:48px; border-radius:8px; background:#2a3040; display:flex; align-items:center; justify-content:center;
+         font-weight:600; font-size:15px; color:var(--muted); user-select:none; }
+  .key.active { background:var(--accent); color:#04121a; }
+  .key.empty { background:transparent; }
+  .row { display:flex; justify-content:space-between; font-size:13px; margin:6px 0; }
+  .row b { color:var(--accent); font-variant-numeric:tabular-nums; }
+  label { font-size:13px; color:var(--muted); display:block; margin:12px 0 4px; }
+  input[type=range] { width:100%; }
+  .hint { font-size:12px; color:var(--muted); line-height:1.6; margin-top:12px; }
+  kbd { background:#2a3040; border-radius:4px; padding:1px 6px; font-family:inherit; color:var(--fg); }
+  button.stop { width:100%; margin-top:14px; padding:12px; border:0; border-radius:8px; background:#e53935; color:#fff;
+                font-weight:700; font-size:15px; cursor:pointer; }
+  button.reset { width:100%; margin-top:8px; padding:10px; border:1px solid #3a4256;
+                 border-radius:8px; background:#2a3040; color:var(--fg); font-weight:600; font-size:14px; cursor:pointer; }
+  button.reset:hover { background:#333c50; }
+  .navbox { margin-top:16px; padding-top:12px; border-top:1px solid #2a3040; }
+  .navtitle { font-size:13px; font-weight:600; color:var(--fg); margin-bottom:8px; }
+  .modes { display:flex; gap:6px; }
+  .mode { flex:1; padding:8px 4px; border:1px solid #3a4256; border-radius:8px; background:#2a3040;
+          color:var(--muted); font-weight:600; font-size:13px; cursor:pointer; }
+  .mode.active { background:var(--accent); color:#04121a; border-color:var(--accent); }
+  #navstate.active { color:#ffb74d; } #navstate.ok { color:#4caf50; } #navstate.bad { color:#e53935; }
+  .cambox { margin-top:12px; }
+  .camhead { display:flex; align-items:center; gap:10px; }
+  .cambtn { padding:8px 12px; border:1px solid #3a4256; border-radius:8px; background:#2a3040;
+            color:var(--fg); font-weight:600; font-size:13px; cursor:pointer; }
+  .cambtn.active { background:var(--accent); color:#04121a; border-color:var(--accent); }
+  .camstat { font-size:12px; color:var(--muted); }
+  .camwrap { margin-top:10px; position:relative; }
+  .camimg { display:block; width:720px; max-width:100%; border-radius:6px; background:#000; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Kinisi Robot Client</h1>
+  <span class="status"><span id="mapdot" class="dot"></span><span id="mapstat">map: waiting…</span></span>
+  <span class="status"><span id="drivedot" class="dot"></span><span id="drivestat">drive: idle</span></span>
+</header>
+
+<main>
+  <div class="mapwrap">
+    <div class="mapview">
+      <canvas id="map" width="720" height="560"></canvas>
+      <div class="mapctl">
+        <button id="zoomin" title="Zoom in">+</button>
+        <button id="zoomout" title="Zoom out">&minus;</button>
+        <button id="recenter" title="Center on robot">&#9678;</button>
+        <button id="togglecost" title="Toggle Nav2 costmap overlay">&#9638;</button>
+      </div>
+      <div class="cmlegend" id="cmlegend">
+        <span>cost</span><span class="cmbar"></span><span>low&nbsp;→&nbsp;lethal</span>
+      </div>
+    </div>
+    <div class="cambox">
+      <div class="camhead">
+        <button id="togglecam" class="cambtn">&#128247; Camera</button>
+        <span id="camstat" class="camstat"></span>
+      </div>
+      <div id="camwrap" class="camwrap" style="display:none">
+        <img id="cam" class="camimg" alt="camera view" />
+      </div>
+    </div>
+  </div>
+
+  <div class="side">
+    <div class="keys">
+      <div class="key empty"></div>
+      <div class="key" data-k="w">W</div>
+      <div class="key empty"></div>
+      <div class="key" data-k="a">A</div>
+      <div class="key" data-k="s">S</div>
+      <div class="key" data-k="d">D</div>
+      <div class="key" data-k="q">Q</div>
+      <div class="key empty"></div>
+      <div class="key" data-k="e">E</div>
+    </div>
+
+    <div class="row"><span>linear.x</span><b id="vlx">0.00</b></div>
+    <div class="row"><span>linear.y</span><b id="vly">0.00</b></div>
+    <div class="row"><span>angular.z</span><b id="vaz">0.00</b></div>
+
+    <label>Linear speed: <span id="lslabel">0.15</span> m/s</label>
+    <input type="range" id="linspeed" min="0.05" max="0.40" step="0.01" value="0.15" />
+    <label>Angular speed: <span id="aslabel">0.60</span> rad/s</label>
+    <input type="range" id="angspeed" min="0.10" max="1.50" step="0.05" value="0.60" />
+
+    <button class="stop" id="stopbtn">STOP (Space)</button>
+    <button class="reset" id="resetposbtn">Reset Position</button>
+    <button class="reset" id="resetmapbtn">Reset Map</button>
+    <button class="reset" id="savemapbtn">Save Map</button>
+
+    <div class="navbox">
+      <div class="navtitle">Autonomous navigation</div>
+      <div class="modes">
+        <button class="mode active" data-mode="drive" id="mode-drive">Drive</button>
+        <button class="mode" data-mode="goal" id="mode-goal">Set Goal</button>
+        <button class="mode" data-mode="init" id="mode-init">Set Pose</button>
+      </div>
+      <div class="hint" id="navhint">Drive mode: use keys to teleop.</div>
+      <div class="row"><span>nav state</span><b id="navstate">idle</b></div>
+      <button class="reset" id="cancelnavbtn">Cancel Navigation</button>
+    </div>
+
+    <div class="hint">
+      <kbd>W</kbd>/<kbd>S</kbd> forward / back &nbsp;·&nbsp;
+      <kbd>A</kbd>/<kbd>D</kbd> rotate left / right<br>
+      <kbd>Q</kbd>/<kbd>E</kbd> strafe left / right (omni)<br>
+      <kbd>Space</kbd> emergency stop.<br>
+      Robot moves only while a key is held.<br>
+      Map: scroll to zoom · right-drag (or drag in Drive) to pan · &#9678; recenters · &#9638; costmap.
+    </div>
+    <div class="row" style="margin-top:12px"><span>pose x,y</span><b id="posexy">–</b></div>
+    <div class="row"><span>pose yaw</span><b id="poseyaw">–</b></div>
+  </div>
+</main>
+
+<script>
+const cv = document.getElementById('map');
+const ctx = cv.getContext('2d');
+const off = document.createElement('canvas');   // offscreen at grid resolution
+const octx = off.getContext('2d');
+const cmoff = document.createElement('canvas');  // offscreen costmap overlay
+const cmctx = cmoff.getContext('2d');
+let showCostmap = true;          // Nav2 costmap overlay on by default
+
+let LIN = 0.15, ANG = 0.60;
+const pressed = new Set();
+let lastCmd = {lx:0, ly:0, az:0};
+
+// ---- Map rendering -------------------------------------------------------
+let view = null; // {resolution, origin, width, height}
+let cam = null;  // {ppm, cx, cy} fixed world camera, locked on first map
+const VIEW_METERS = 10;   // default world span across the shorter canvas axis
+function defaultPpm() { return Math.min(cv.width, cv.height) / VIEW_METERS; }
+
+// ---- Autonomous navigation state ----------------------------------------
+let mode = 'drive';          // 'drive' | 'goal' | 'init'
+let lastMap = null;          // last /map payload (for interactive re-render)
+let pendingPose = null;      // {x, y, yaw} being set by click-drag
+let dragStart = null;        // world [x, y] where the drag began
+
+function drawPoseMarker(p, color) {
+  if (!cam) return;
+  const [sx, sy] = worldToScreen(p.x, p.y);
+  ctx.beginPath();
+  ctx.arc(sx, sy, 8, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = '#04121a'; ctx.stroke();
+  const L = 22;
+  ctx.beginPath();
+  ctx.moveTo(sx, sy);
+  ctx.lineTo(sx + L * Math.cos(p.yaw), sy - L * Math.sin(p.yaw));
+  ctx.lineWidth = 3; ctx.strokeStyle = color; ctx.stroke();
+}
+
+function drawNavOverlays(nav) {
+  if (!nav || !cam) return;
+  // Planned path
+  if (nav.path && nav.path.length > 1) {
+    ctx.beginPath();
+    nav.path.forEach((pt, i) => {
+      const [sx, sy] = worldToScreen(pt.x, pt.y);
+      if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+    });
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(129,212,250,0.9)'; ctx.stroke();
+  }
+  // Active goal marker
+  const active = nav.state === 'active' || nav.state === 'pending';
+  if (nav.goal && active) drawPoseMarker(nav.goal, '#66bb6a');
+}
+
+function updateNavStatus(nav) {
+  const el = document.getElementById('navstate');
+  const s = nav.state || 'idle';
+  el.textContent = s;
+  el.className = '';
+  if (s === 'active' || s === 'pending') el.classList.add('active');
+  else if (s === 'succeeded') el.classList.add('ok');
+  else if (s === 'failed' || s === 'no_server' || s === 'canceled') el.classList.add('bad');
+}
+
+// ---- Costmap overlay -----------------------------------------------------
+// Nav2 publishes costmaps as OccupancyGrid: -1 unknown, 0 free, 1..98
+// inflation gradient, 99 inscribed, 100 lethal. Draw only cost>0 cells as a
+// translucent blue->red heat layer so the base map stays readable underneath.
+function costRGBA(v) {
+  if (v >= 100) return [235, 40, 40];    // lethal
+  if (v >= 99)  return [255, 130, 0];    // inscribed
+  const t = Math.min(1, v / 98);
+  return [
+    Math.round(30  + t * (235 - 30)),
+    Math.round(90  + t * (190 - 90)),
+    Math.round(200 - t * 200),
+  ];
+}
+
+function drawCostmap(cm, alpha) {
+  if (!cam || !cm || !cm.data) return;
+  const W = cm.width, H = cm.height;
+  cmoff.width = W; cmoff.height = H;
+  const img = cmctx.createImageData(W, H);
+  const d = cm.data;
+  for (let gy = 0; gy < H; gy++) {
+    const srcRow = gy * W;
+    const dstRow = (H - 1 - gy) * W;    // flip vertically so +y (north) is up
+    for (let gx = 0; gx < W; gx++) {
+      const v = d[srcRow + gx];
+      const p = (dstRow + gx) * 4;
+      if (v <= 0) { img.data[p + 3] = 0; continue; }  // free/unknown -> clear
+      const [r, g, b] = costRGBA(v);
+      img.data[p] = r; img.data[p + 1] = g; img.data[p + 2] = b; img.data[p + 3] = 255;
+    }
+  }
+  cmctx.putImageData(img, 0, 0);
+  const [dx, dy] = worldToScreen(cm.origin.x, cm.origin.y + H * cm.resolution);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(cmoff, dx, dy, W * cm.resolution * cam.ppm, H * cm.resolution * cam.ppm);
+  ctx.restore();
+}
+
+function drawMap(m) {  lastMap = m;
+  const dot = document.getElementById('mapdot');
+  const stat = document.getElementById('mapstat');
+  if (m.nav) updateNavStatus(m.nav);
+  if (!m.available) {
+    dot.className = 'dot bad';
+    stat.textContent = 'map: none yet (is SLAM running?)';
+    view = null;
+    if (m.pose) drawPoseOnly(m.pose);
+    return;
+  }
+  dot.className = 'dot ok';
+  const modeLabel = m.map_mode === 'updating' ? ' · updating (SLAM)'
+    : m.map_mode === 'static' ? ' · static (AMCL)' : '';
+  stat.textContent = `map: ${m.width}×${m.height} @ ${m.resolution.toFixed(3)} m${modeLabel}`;
+
+  const W = m.width, H = m.height;
+  off.width = W; off.height = H;
+  const img = octx.createImageData(W, H);
+  const d = m.data;
+  for (let gy = 0; gy < H; gy++) {
+    const srcRow = gy * W;
+    const dstRow = (H - 1 - gy) * W;    // flip vertically so +y (north) is up
+    for (let gx = 0; gx < W; gx++) {
+      const v = d[srcRow + gx];
+      let s;
+      if (v < 0) s = 205;               // unknown -> gray
+      else s = Math.round(255 - (v / 100) * 255); // 0 free=white, 100 occ=black
+      const p = (dstRow + gx) * 4;
+      img.data[p] = s; img.data[p+1] = s; img.data[p+2] = s; img.data[p+3] = 255;
+    }
+  }
+  octx.putImageData(img, 0, 0);
+
+  // World-fixed camera: lock the scale and center on the first map so the
+  // robot drives across a STATIONARY map instead of the map sliding under a
+  // pinned robot. (slam_toolbox grows/re-origins its grid as you explore; a
+  // fit-to-canvas redraw would rescale every frame and hide real motion.)
+  if (!cam) {
+    const cx = m.pose ? m.pose.x : m.origin.x + (W * m.resolution) / 2;
+    const cy = m.pose ? m.pose.y : m.origin.y + (H * m.resolution) / 2;
+    cam = { ppm: defaultPpm(), cx, cy };
+  }
+  view = {resolution: m.resolution, origin: m.origin, width: W, height: H};
+
+  ctx.fillStyle = '#8a8a8a';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.imageSmoothingEnabled = false;
+  // Draw the grid image at its true world position under the fixed camera.
+  // Offscreen top edge = the map's max-y row, so anchor at (origin.x, origin.y+H*res).
+  const [dx, dy] = worldToScreen(m.origin.x, m.origin.y + H * m.resolution);
+  ctx.drawImage(off, dx, dy, W * m.resolution * cam.ppm, H * m.resolution * cam.ppm);
+
+  // Nav2 costmap overlay (global first as the base layer, local on top since
+  // it carries the freshest obstacle detections around the robot).
+  if (showCostmap && m.costmaps) {
+    if (m.costmaps.global) drawCostmap(m.costmaps.global, 0.38);
+    if (m.costmaps.local)  drawCostmap(m.costmaps.local, 0.55);
+  }
+
+  if (m.pose) drawRobot(m.pose);
+  drawNavOverlays(m.nav);
+  if (pendingPose) drawPoseMarker(pendingPose, '#ffd54f');
+  updatePoseText(m.pose);
+}
+
+function worldToScreen(x, y) {
+  const sx = cv.width / 2 + (x - cam.cx) * cam.ppm;
+  const sy = cv.height / 2 - (y - cam.cy) * cam.ppm; // flip y -> north up
+  return [sx, sy];
+}
+
+function screenToWorld(sx, sy) {
+  const x = cam.cx + (sx - cv.width / 2) / cam.ppm;
+  const y = cam.cy - (sy - cv.height / 2) / cam.ppm; // flip y -> north up
+  return [x, y];
+}
+
+// Canvas pixel coords from a mouse event (handles CSS scaling).
+function evtToCanvas(e) {
+  const rect = cv.getBoundingClientRect();
+  return [
+    (e.clientX - rect.left) * (cv.width / rect.width),
+    (e.clientY - rect.top) * (cv.height / rect.height),
+  ];
+}
+
+// Physical robot: the chassis is a cylinder of radius 0.30 m (see
+// description/robot_core.xacro), i.e. a 0.60 m diameter body. Draw it to real
+// world scale so its footprint on the map matches the actual robot.
+const ROBOT_RADIUS_M = 0.30;
+
+function drawRobot(pose) {
+  if (!cam) return;
+  const [sx, sy] = worldToScreen(pose.x, pose.y);
+  // True-to-scale body radius in screen pixels; keep a small floor so the robot
+  // stays visible when zoomed far out.
+  const r = Math.max(5, ROBOT_RADIUS_M * cam.ppm);
+  // Translucent fill + solid outline so the map/costmap stays visible beneath.
+  ctx.beginPath();
+  ctx.arc(sx, sy, r, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(79,195,247,0.30)';
+  ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = '#04121a'; ctx.stroke();
+  // Heading arrow from center to the body edge (screen y is flipped -> subtract sin).
+  ctx.beginPath();
+  ctx.moveTo(sx, sy);
+  ctx.lineTo(sx + r * Math.cos(pose.yaw), sy - r * Math.sin(pose.yaw));
+  ctx.lineWidth = 3; ctx.strokeStyle = '#ff5252'; ctx.stroke();
+  // Center dot marks the exact base_link position.
+  ctx.beginPath();
+  ctx.arc(sx, sy, Math.min(3, r), 0, Math.PI * 2);
+  ctx.fillStyle = '#4fc3f7';
+  ctx.fill();
+}
+
+function drawPoseOnly(pose) { updatePoseText(pose); }
+
+function updatePoseText(pose) {
+  document.getElementById('posexy').textContent =
+    pose ? `${pose.x.toFixed(2)}, ${pose.y.toFixed(2)}` : '–';
+  document.getElementById('poseyaw').textContent =
+    pose ? `${(pose.yaw * 180 / Math.PI).toFixed(0)}°` : '–';
+}
+
+async function refreshMap() {
+  try {
+    const url = showCostmap ? '/map?costmap=both' : '/map';
+    const r = await fetch(url, {cache: 'no-store'});
+    if (!r.ok) throw new Error(r.status);
+    drawMap(await r.json());
+  } catch (e) {
+    document.getElementById('mapdot').className = 'dot bad';
+    document.getElementById('mapstat').textContent = 'map: server unreachable';
+  }
+}
+
+// ---- Driving -------------------------------------------------------------
+function computeCmd() {
+  let lx = 0, ly = 0, az = 0;
+  if (pressed.has('w')) lx += LIN;
+  if (pressed.has('s')) lx -= LIN;
+  if (pressed.has('a')) az += ANG;   // A = turn left (+z)
+  if (pressed.has('d')) az -= ANG;
+  if (pressed.has('q')) ly += LIN;   // Q = strafe left (+y)
+  if (pressed.has('e')) ly -= LIN;
+  return {lx, ly, az};
+}
+
+async function sendCmd(cmd) {
+  lastCmd = cmd;
+  document.getElementById('vlx').textContent = cmd.lx.toFixed(2);
+  document.getElementById('vly').textContent = cmd.ly.toFixed(2);
+  document.getElementById('vaz').textContent = cmd.az.toFixed(2);
+  const moving = cmd.lx || cmd.ly || cmd.az;
+  document.getElementById('drivedot').className = 'dot ' + (moving ? 'ok' : '');
+  document.getElementById('drivestat').textContent = moving ? 'drive: moving' : 'drive: idle';
+  try {
+    await fetch('/cmd_vel', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(cmd),
+    });
+  } catch (e) {
+    document.getElementById('drivedot').className = 'dot bad';
+    document.getElementById('drivestat').textContent = 'drive: send failed';
+  }
+}
+
+function highlight() {
+  document.querySelectorAll('.key[data-k]').forEach(el => {
+    el.classList.toggle('active', pressed.has(el.dataset.k));
+  });
+}
+
+function stopAll() {
+  pressed.clear();
+  highlight();
+  sendCmd({lx: 0, ly: 0, az: 0});
+}
+
+// Emergency stop: also cancel any active Nav2 goal. A plain teleop zero is
+// NOT enough while navigating — Nav2 keeps publishing /cmd_vel and the base
+// latches its last command, so the robot would keep going (e.g. into a wall).
+// The server cancels the goal and spams zeros to defeat the latch.
+async function emergencyStop() {
+  pressed.clear();
+  highlight();
+  postReset('/estop');            // cancel nav + server-side sustained stop
+  sendCmd({lx: 0, ly: 0, az: 0}); // immediate local zero + UI update
+}
+
+const DRIVE_KEYS = ['w', 'a', 's', 'd', 'q', 'e'];
+
+window.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  if (k === ' ') { e.preventDefault(); emergencyStop(); return; }
+  if (!DRIVE_KEYS.includes(k)) return;
+  if (mode !== 'drive') return;   // no teleop while placing goals/poses
+  e.preventDefault();
+  if (e.repeat) return;
+  if (!pressed.has(k)) { pressed.add(k); highlight(); sendCmd(computeCmd()); }
+});
+window.addEventListener('keyup', (e) => {
+  const k = e.key.toLowerCase();
+  if (!DRIVE_KEYS.includes(k)) return;
+  e.preventDefault();
+  if (pressed.delete(k)) { highlight(); sendCmd(computeCmd()); }
+});
+// Safety: release everything if the tab loses focus.
+window.addEventListener('blur', stopAll);
+
+document.getElementById('stopbtn').addEventListener('click', emergencyStop);
+
+async function postReset(url) {
+  try {
+    const r = await fetch(url, {method: 'POST'});
+    return r.ok;
+  } catch (e) { return false; }
+}
+
+document.getElementById('resetposbtn').addEventListener('click', async () => {
+  if (!confirm('Reset robot position (zero odometry)?\nWhile mapping this shifts the map — use Reset Map for a clean start.')) return;
+  stopAll();
+  const ok = await postReset('/reset_odom');
+  cam = null; // re-lock the world camera after the map shifts
+  document.getElementById('drivestat').textContent = ok ? 'position reset' : 'reset failed';
+  setTimeout(refreshMap, 500);
+});
+
+document.getElementById('resetmapbtn').addEventListener('click', async () => {
+  if (!confirm('Reset the map? This restarts SLAM with a fresh empty map and zeroes odometry.')) return;
+  stopAll();
+  const ok = await postReset('/reset_map');
+  cam = null; // re-lock the world camera on the fresh map
+  document.getElementById('mapstat').textContent = ok ? 'map: restarting SLAM…' : 'map: reset failed';
+  setTimeout(refreshMap, 4000);
+});
+
+document.getElementById('savemapbtn').addEventListener('click', async () => {
+  const name = prompt('Save map as (letters, digits, _ or -):', 'kinisi_map');
+  if (name === null) return;
+  const stat = document.getElementById('mapstat');
+  stat.textContent = 'map: saving…';
+  try {
+    const r = await fetch('/save_map', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const res = await r.json();
+    if (res.ok) {
+      stat.textContent = `map: saved ${res.name}` +
+        (res.posegraph ? ' (+ pose-graph)' : '');
+    } else {
+      stat.textContent = 'map: save failed';
+      alert('Save failed: ' + (res.error || 'unknown error'));
+    }
+  } catch (e) {
+    stat.textContent = 'map: save failed';
+    alert('Save failed: server unreachable.');
+  }
+  setTimeout(refreshMap, 1500);
+});
+document.getElementById('linspeed').addEventListener('input', (e) => {
+  LIN = parseFloat(e.target.value);
+  document.getElementById('lslabel').textContent = LIN.toFixed(2);
+  if (pressed.size) sendCmd(computeCmd());
+});
+document.getElementById('angspeed').addEventListener('input', (e) => {
+  ANG = parseFloat(e.target.value);
+  document.getElementById('aslabel').textContent = ANG.toFixed(2);
+  if (pressed.size) sendCmd(computeCmd());
+});
+
+// Keepalive: re-send the current command periodically while driving so the
+// robot keeps moving and a dropped packet can't leave it running.
+setInterval(() => { if (pressed.size) sendCmd(computeCmd()); }, 250);
+
+// ---- Dead-man's switch ---------------------------------------------------
+// Heartbeat the backend a few times a second. If these stop arriving (tab
+// closed, browser crash, Wi-Fi drop) the robot-side watchdog issues a safety
+// stop — essential because the base LATCHES its last velocity and would
+// otherwise keep driving with no operator connected.
+async function sendHeartbeat() {
+  try { await fetch('/heartbeat', {method: 'POST', keepalive: true}); }
+  catch (e) { /* backend watchdog will stop the base on its own */ }
+}
+setInterval(sendHeartbeat, 500);
+sendHeartbeat();
+
+// Stop immediately when the page is closed/hidden (don't wait for the
+// watchdog timeout). sendBeacon survives page unload.
+function beaconStop() { try { navigator.sendBeacon('/estop'); } catch (e) {} }
+window.addEventListener('pagehide', beaconStop);
+window.addEventListener('beforeunload', beaconStop);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') { stopAll(); beaconStop(); }
+});
+
+// ---- Navigation UI: mode toggle + click-drag goal/pose ------------------
+const NAV_HINTS = {
+  drive: 'Drive mode: use keys to teleop.',
+  goal: 'Set Goal: click the map and drag to aim heading; release to send.',
+  init: 'Set Pose: click where the robot actually is, drag to set heading.',
+};
+
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('.mode').forEach(el =>
+    el.classList.toggle('active', el.dataset.mode === m));
+  document.getElementById('navhint').textContent = NAV_HINTS[m];
+  if (m === 'drive') {
+    // Switching to manual drive: cancel any active navigation goal so Nav2
+    // stops driving (and stops running recovery behaviors that wander the
+    // robot) and hands control back to the operator. Also clears the marker.
+    // cancelActiveGoal() hits /cancel_nav, which cancels the goal AND spams a
+    // sustained zero on the (latching) base; stopAll() gives an immediate
+    // local zero + UI update so the robot halts right away.
+    cancelActiveGoal();
+    stopAll();
+  } else {
+    stopAll(); // don't teleop while placing goals
+  }
+  cv.style.cursor = m === 'drive' ? 'default' : 'crosshair';
+  pendingPose = null;
+  dragStart = null;
+}
+
+async function cancelActiveGoal() {
+  pendingPose = null;
+  await postReset('/cancel_nav');
+  redraw();
+}
+
+document.querySelectorAll('.mode').forEach(el =>
+  el.addEventListener('click', () => setMode(el.dataset.mode)));
+
+function redraw() { if (lastMap) drawMap(lastMap); }
+
+// ---- Map zoom & pan ------------------------------------------------------
+// The world camera (cam) is normally locked so the robot drives across a
+// stationary map. Zoom/pan let the operator change cam.ppm and cam.cx/cy;
+// those changes persist (drawMap only re-locks cam when it is null).
+const MIN_PPM = 4, MAX_PPM = 400;
+let panGrab = null;   // world [x,y] grabbed under the cursor at pan start
+
+// Zoom keeping the world point under (sx,sy) fixed on screen.
+function zoomAt(sx, sy, factor) {
+  if (!cam) return;
+  const [wx, wy] = screenToWorld(sx, sy);
+  cam.ppm = Math.min(MAX_PPM, Math.max(MIN_PPM, cam.ppm * factor));
+  cam.cx = wx - (sx - cv.width / 2) / cam.ppm;
+  cam.cy = wy + (sy - cv.height / 2) / cam.ppm;
+  redraw();
+}
+
+function recenterView() {
+  if (!cam) return;
+  cam.ppm = defaultPpm();
+  const p = lastMap && lastMap.pose;
+  if (p) { cam.cx = p.x; cam.cy = p.y; }
+  redraw();
+}
+
+function beginPan(e) {
+  if (!cam) return;
+  const [cx, cy] = evtToCanvas(e);
+  panGrab = screenToWorld(cx, cy);
+  cv.style.cursor = 'grabbing';
+}
+function movePan(e) {
+  if (!panGrab) return;
+  const [cx, cy] = evtToCanvas(e);   // keep the grabbed world point under the cursor
+  cam.cx = panGrab[0] - (cx - cv.width / 2) / cam.ppm;
+  cam.cy = panGrab[1] + (cy - cv.height / 2) / cam.ppm;
+  redraw();
+}
+function endPan() {
+  if (!panGrab) return;
+  panGrab = null;
+  cv.style.cursor = mode === 'drive' ? 'default' : 'crosshair';
+}
+
+cv.addEventListener('wheel', (e) => {
+  if (!cam) return;
+  e.preventDefault();
+  const [cx, cy] = evtToCanvas(e);
+  zoomAt(cx, cy, Math.exp(-e.deltaY * 0.0015));
+}, { passive: false });
+
+cv.addEventListener('contextmenu', (e) => e.preventDefault()); // allow right-drag pan
+document.getElementById('zoomin').addEventListener('click', () => zoomAt(cv.width / 2, cv.height / 2, 1.2));
+document.getElementById('zoomout').addEventListener('click', () => zoomAt(cv.width / 2, cv.height / 2, 1 / 1.2));
+document.getElementById('recenter').addEventListener('click', recenterView);
+
+// Costmap overlay toggle (button in the map controls + legend).
+const costBtn = document.getElementById('togglecost');
+const cmLegend = document.getElementById('cmlegend');
+function updateCostToggle() {
+  costBtn.classList.toggle('active', showCostmap);
+  cmLegend.classList.toggle('on', showCostmap);
+}
+costBtn.addEventListener('click', () => {
+  showCostmap = !showCostmap;
+  updateCostToggle();
+  refreshMap();
+});
+updateCostToggle();
+
+// Camera view. No live stream on this Pi (no libcamera/ffmpeg): the backend
+// grabs a still (~5 s each) on demand, only while this panel is open. We poll
+// /camera.jpg every 2 s; the server returns the latest cached frame and starts
+// a fresh capture when one isn't already running (so the image updates ~5 s).
+const camBtn = document.getElementById('togglecam');
+const camWrap = document.getElementById('camwrap');
+const camImg = document.getElementById('cam');
+const camStat = document.getElementById('camstat');
+let showCam = false;
+let camTimer = null;
+let camLoading = false;
+function refreshCam() {
+  if (!showCam || camLoading) return;
+  camLoading = true;
+  const img = new Image();
+  img.onload = () => {
+    camImg.src = img.src;
+    camStat.textContent = 'updated ' + new Date().toLocaleTimeString();
+    camLoading = false;
+  };
+  img.onerror = () => { camStat.textContent = 'capturing…'; camLoading = false; };
+  img.src = '/camera.jpg?t=' + Date.now();
+}
+function updateCamToggle() {
+  camBtn.classList.toggle('active', showCam);
+  camWrap.style.display = showCam ? 'block' : 'none';
+  if (showCam) {
+    camStat.textContent = 'capturing…';
+    refreshCam();
+    if (!camTimer) camTimer = setInterval(refreshCam, 2000);
+  } else {
+    if (camTimer) { clearInterval(camTimer); camTimer = null; }
+    camStat.textContent = '';
+  }
+}
+camBtn.addEventListener('click', () => { showCam = !showCam; updateCamToggle(); });
+
+cv.addEventListener('mousedown', (e) => {
+  if (!cam) return;
+  // Right button (any mode) or left button in Drive mode pans the map;
+  // left button in goal/init modes places a goal/pose.
+  if (e.button === 2 || (e.button === 0 && mode === 'drive')) {
+    e.preventDefault();
+    beginPan(e);
+    return;
+  }
+  if (mode === 'drive' || e.button !== 0) return;
+  e.preventDefault();
+  const [cx, cy] = evtToCanvas(e);
+  dragStart = screenToWorld(cx, cy);
+  pendingPose = { x: dragStart[0], y: dragStart[1], yaw: 0 };
+  redraw();
+});
+
+cv.addEventListener('mousemove', (e) => {
+  if (panGrab) { movePan(e); return; }
+  if (!dragStart) return;
+  const [cx, cy] = evtToCanvas(e);
+  const [wx, wy] = screenToWorld(cx, cy);
+  pendingPose = {
+    x: dragStart[0], y: dragStart[1],
+    yaw: Math.atan2(wy - dragStart[1], wx - dragStart[0]),
+  };
+  redraw();
+});
+
+async function finishDrag() {
+  if (!dragStart || !pendingPose) { dragStart = null; return; }
+  const p = pendingPose;
+  const url = mode === 'goal' ? '/nav_goal' : '/set_initial_pose';
+  dragStart = null;
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(p),
+    });
+    const ok = r.ok;
+    document.getElementById('navhint').textContent = ok
+      ? (mode === 'goal' ? 'Goal sent — navigating…' : 'Initial pose set.')
+      : 'Request failed (is Nav2 running?)';
+  } catch (e) {
+    document.getElementById('navhint').textContent = 'Request failed (server unreachable).';
+  }
+  if (mode === 'init') pendingPose = null; // goal marker comes back via nav status
+  redraw();
+}
+cv.addEventListener('mouseup', (e) => {
+  if (panGrab) { endPan(); return; }
+  finishDrag();
+});
+cv.addEventListener('mouseleave', () => {
+  if (panGrab) { endPan(); return; }
+  if (dragStart) finishDrag();
+});
+
+document.getElementById('cancelnavbtn').addEventListener('click', async () => {
+  await cancelActiveGoal();
+  document.getElementById('navhint').textContent = 'Navigation canceled.';
+});
+
+refreshMap();
+setInterval(refreshMap, 1500);
+</script>
+</body>
+</html>
